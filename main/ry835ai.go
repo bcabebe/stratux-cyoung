@@ -154,8 +154,7 @@ func initGPSSerial() bool {
 	var device string
 	baudrate := int(9600)
 	isSirfIV := bool(false)
-        isGarmin := bool(false)
-
+        
 	if _, err := os.Stat("/dev/ublox8"); err == nil { // u-blox 8 (RY83xAI over USB).
 		device = "/dev/ublox8"
 	} else if _, err := os.Stat("/dev/ublox7"); err == nil { // u-blox 7 (VK-172, RY725AI over USB).
@@ -167,10 +166,8 @@ func initGPSSerial() bool {
 		isSirfIV = true
 		baudrate = 4800
 		device = "/dev/prolific0"
-	} else if _, err := os.Stat("/dev/ttyS0"); err == nil { // ttyAMA0 (ttyS0 on RPi3) is PL011 UART (GPIO pins 8 and 10) on all RPi.
-		device = "/dev/ttyS0"
-                baudrate = 4800
-		isGarmin = true
+	} else if _, err := os.Stat("/dev/ttyAMA0"); err == nil { // ttyAMA0 is PL011 UART (GPIO pins 8 and 10) on all RPi.
+		device = "/dev/ttyAMA0"
 	} else {
 		log.Printf("No suitable device found.\n")
 		return false
@@ -235,14 +232,6 @@ func initGPSSerial() bool {
 		return false
 	}
 
-	if isGarmin {
-		// nothing to do for Garmin GPS NMEA input
-		
-		if globalSettings.DEBUG {
-			log.Printf("Finished writing Garmin GPS config to %s. Opening port to test connection.\n", device)
-		}
-		
-	} else {
 	if isSirfIV {
 		log.Printf("Using SiRFIV config.\n")
 		// Enable 38400 baud.

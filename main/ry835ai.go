@@ -154,6 +154,7 @@ func initGPSSerial() bool {
 	var device string
 	baudrate := int(9600)
 	isSirfIV := bool(false)
+        isGarmin := bool(false)
 
 	if _, err := os.Stat("/dev/ublox8"); err == nil { // u-blox 8 (RY83xAI over USB).
 		device = "/dev/ublox8"
@@ -166,8 +167,10 @@ func initGPSSerial() bool {
 		isSirfIV = true
 		baudrate = 4800
 		device = "/dev/prolific0"
-	} else if _, err := os.Stat("/dev/ttyAMA0"); err == nil { // ttyAMA0 is PL011 UART (GPIO pins 8 and 10) on all RPi.
-		device = "/dev/ttyAMA0"
+	} else if _, err := os.Stat("/dev/ttyS0"); err == nil { // ttyAMA0 (ttyS0 on RPi3) is PL011 UART (GPIO pins 8 and 10) on all RPi.
+		device = "/dev/ttyS0"
+                baudrate = 4800
+		isGarmin = true
 	} else {
 		log.Printf("No suitable device found.\n")
 		return false
@@ -232,6 +235,14 @@ func initGPSSerial() bool {
 		return false
 	}
 
+	if isGarmin {
+		// nothing to do for Garmin GPS NMEA input
+		
+		if globalSettings.DEBUG {
+			log.Printf("Finished writing Garmin GPS config to %s. Opening port to test connection.\n", device)
+		}
+		
+	} else {
 	if isSirfIV {
 		log.Printf("Using SiRFIV config.\n")
 		// Enable 38400 baud.
@@ -369,6 +380,8 @@ func initGPSSerial() bool {
 			log.Printf("Finished writing u-blox GPS config to %s. Opening port to test connection.\n", device)
 		}
 	}
+	}	// if isGarmin
+	
 	p.Close()
 
 	time.Sleep(250 * time.Millisecond)
@@ -395,6 +408,10 @@ func initGPSSerial() bool {
 func validateNMEAChecksum(s string) (string, bool) {
 	//validate format. NMEA sentences start with "$" and end in "*xx" where xx is the XOR value of all bytes between
 	if !(strings.HasPrefix(s, "$") && strings.Contains(s, "*")) {
+  if globalSettings.DEBUG {
+	log.Printf("Invalid NMEA message: %s\n", s)
+  }
+		
 		return "Invalid NMEA message", false
 	}
 
@@ -409,6 +426,10 @@ func validateNMEAChecksum(s string) (string, bool) {
 
 	cs, err := strconv.ParseUint(s_cs[:2], 16, 8)
 	if err != nil {
+  if globalSettings.DEBUG {
+	log.Printf("Invalid checksum: %s\n", s)
+  }
+		
 		return "Invalid checksum", false
 	}
 
@@ -418,6 +439,10 @@ func validateNMEAChecksum(s string) (string, bool) {
 	}
 
 	if cs_calc != byte(cs) {
+  if globalSettings.DEBUG {
+	log.Printf("Failed Checksum: %s\n", s)
+  }
+		
 		return fmt.Sprintf("Checksum failed. Calculated %#X; expected %#X", cs_calc, cs), false
 	}
 
@@ -832,13 +857,16 @@ func processNMEALine(l string) (sentenceUsed bool) {
 
 		// otherwise parse the NMEA standard messages as a compatibility option for SIRF, generic NMEA, etc.
 	} else if (x[0] == "GNVTG") || (x[0] == "GPVTG") { // Ground track information.
+	if globalSettings.DEBUG { log.Printf("GPVTG message.\n") }
 		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
 		if len(x) < 9 {             // Reduce from 10 to 9 to allow parsing by devices pre-NMEA v2.3
+	if globalSettings.DEBUG { log.Printf("GPVTG bad len.\n") }
 			return false
 		}
 
 		groundspeed, err := strconv.ParseFloat(x[5], 32) // Knots.
 		if err != nil {
+	if globalSettings.DEBUG { log.Printf("GPVTG bad groundspeed.\n") }
 			return false
 		}
 		tmpSituation.GroundSpeed = uint16(groundspeed)
@@ -846,6 +874,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		trueCourse := float32(0)
 		tc, err := strconv.ParseFloat(x[1], 32)
 		if err != nil {
+	if globalSettings.DEBUG { log.Printf("GPVTG bad true course.\n") }
 			return false
 		}
 		if groundspeed > 3 { // TO-DO: use average groundspeed over last n seconds to avoid random "jumps"
@@ -859,31 +888,42 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		tmpSituation.LastGroundTrackTime = stratuxClock.Time
 
 		// We've made it this far, so that means we've processed "everything" and can now make the change to mySituation.
+	if globalSettings.DEBUG {
+		log.Printf("Good GPVTG NMEA message.\n")
+	}
+		
 		mySituation = tmpSituation
 		return true
 
 	} else if (x[0] == "GNGGA") || (x[0] == "GPGGA") { // Position fix.
+//	if globalSettings.DEBUG { log.Printf("GPGGA message.\n") }
 		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
 
 		if len(x) < 15 {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad len.\n") }
 			return false
 		}
 
 		// Quality indicator.
 		q, err1 := strconv.Atoi(x[6])
 		if err1 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad quality.\n") }
 			return false
 		}
 		tmpSituation.Quality = uint8(q) // 1 = 3D GPS; 2 = DGPS (SBAS /WAAS)
 
 		// Timestamp.
-		if len(x[1]) < 7 {
+	//	if len(x[1]) < 7 {
+		if len(x[1]) < 6 {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad timestamp.\n") }
 			return false
 		}
 		hr, err1 := strconv.Atoi(x[1][0:2])
 		min, err2 := strconv.Atoi(x[1][2:4])
-		sec, err3 := strconv.ParseFloat(x[1][4:], 32)
+	//	sec, err3 := strconv.ParseFloat(x[1][4:], 32)
+		sec, err3 := strconv.Atoi(x[1][4:6])
 		if err1 != nil || err2 != nil || err3 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad hr.min.sec.\n") }
 			return false
 		}
 
@@ -891,12 +931,14 @@ func processNMEALine(l string) (sentenceUsed bool) {
 
 		// Latitude.
 		if len(x[2]) < 4 {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad lat.\n") }
 			return false
 		}
 
 		hr, err1 = strconv.Atoi(x[2][0:2])
 		minf, err2 := strconv.ParseFloat(x[2][2:], 32)
 		if err1 != nil || err2 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad lat.hr.minf.\n") }
 			return false
 		}
 
@@ -907,11 +949,13 @@ func processNMEALine(l string) (sentenceUsed bool) {
 
 		// Longitude.
 		if len(x[4]) < 5 {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad long.\n") }
 			return false
 		}
 		hr, err1 = strconv.Atoi(x[4][0:3])
 		minf, err2 = strconv.ParseFloat(x[4][3:], 32)
 		if err1 != nil || err2 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad long.hr.minf.\n") }
 			return false
 		}
 
@@ -923,6 +967,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		// Altitude.
 		alt, err1 := strconv.ParseFloat(x[9], 32)
 		if err1 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad altitude.\n") }
 			return false
 		}
 		tmpSituation.Alt = float32(alt * 3.28084) // Convert to feet.
@@ -932,6 +977,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 
 		geoidSep, err1 := strconv.ParseFloat(x[11], 32)
 		if err1 != nil {
+	if globalSettings.DEBUG { log.Printf("GPGGA bad geo id sep.\n") }
 			return false
 		}
 		tmpSituation.GeoidSep = float32(geoidSep * 3.28084) // Convert to feet.
@@ -941,10 +987,15 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		tmpSituation.LastFixLocalTime = stratuxClock.Time
 
 		// We've made it this far, so that means we've processed "everything" and can now make the change to mySituation.
+//	if globalSettings.DEBUG {
+//		log.Printf("Good GPGGA NMEA message.\n")
+//	}
+		
 		mySituation = tmpSituation
 		return true
 
 	} else if (x[0] == "GNRMC") || (x[0] == "GPRMC") { // Recommended Minimum data. FIXME: Is this needed anymore?
+//	if globalSettings.DEBUG { log.Printf("GPRMC message.\n") }
 		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
 
 		//$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A
@@ -963,22 +1014,33 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		     *6A          The checksum data, always begins with *
 		*/
 		if len(x) < 11 {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad len.\n") }
 			return false
 		}
 
-		if x[2] != "A" { // invalid fix
+		if x[2] == "A" { 
+			tmpSituation.Quality = 1
+		} else if x[2] == "V" { // invalid fix
+			tmpSituation.Quality = 0	// bmc - allow simulation mode from GPSMAP 496
+	if globalSettings.DEBUG { log.Printf("GPRMC simulation fix.\n") }
+		} else if x[2] != "A" { // invalid fix
 			tmpSituation.Quality = 0 // Just a note.
+	if globalSettings.DEBUG { log.Printf("GPRMC invalid fix.\n") }
 			return false
 		}
 
 		// Timestamp.
-		if len(x[1]) < 7 {
+	//	if len(x[1]) < 7 {
+		if len(x[1]) < 6 {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad timestamp?\n") }
 			return false
 		}
 		hr, err1 := strconv.Atoi(x[1][0:2])
 		min, err2 := strconv.Atoi(x[1][2:4])
-		sec, err3 := strconv.ParseFloat(x[1][4:], 32)
+	//	sec, err3 := strconv.ParseFloat(x[1][4:], 32)
+		sec, err3 := strconv.Atoi(x[1][4:6])
 		if err1 != nil || err2 != nil || err3 != nil {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad hr.min.sec.\n") }
 			return false
 		}
 		tmpSituation.LastFixSinceMidnightUTC = float32(3600*hr+60*min) + float32(sec)
@@ -1005,11 +1067,13 @@ func processNMEALine(l string) (sentenceUsed bool) {
 
 		// Latitude.
 		if len(x[3]) < 4 {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad lat.\n") }
 			return false
 		}
 		hr, err1 = strconv.Atoi(x[3][0:2])
 		minf, err2 := strconv.ParseFloat(x[3][2:], 32)
 		if err1 != nil || err2 != nil {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad lat.hr.minf.\n") }			
 			return false
 		}
 		tmpSituation.Lat = float32(hr) + float32(minf/60.0)
@@ -1018,11 +1082,13 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		}
 		// Longitude.
 		if len(x[5]) < 5 {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad long.\n") }
 			return false
 		}
 		hr, err1 = strconv.Atoi(x[5][0:3])
 		minf, err2 = strconv.ParseFloat(x[5][3:], 32)
 		if err1 != nil || err2 != nil {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad lat.hr.minf.\n") }
 			return false
 		}
 		tmpSituation.Lng = float32(hr) + float32(minf/60.0)
@@ -1035,6 +1101,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		// ground speed in kts (field 7)
 		groundspeed, err := strconv.ParseFloat(x[7], 32)
 		if err != nil {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad groundspeed.\n") }
 			return false
 		}
 		tmpSituation.GroundSpeed = uint16(groundspeed)
@@ -1043,6 +1110,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		trueCourse := float32(0)
 		tc, err := strconv.ParseFloat(x[8], 32)
 		if err != nil {
+	if globalSettings.DEBUG { log.Printf("GPRMC bad true course.\n") }
 			return false
 		}
 		if groundspeed > 3 { // TO-DO: use average groundspeed over last n seconds to avoid random "jumps"
@@ -1057,11 +1125,16 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		tmpSituation.LastGroundTrackTime = stratuxClock.Time
 
 		// We've made it this far, so that means we've processed "everything" and can now make the change to mySituation.
+//	if globalSettings.DEBUG {
+//		log.Printf("Good GPRMC NMEA message.\n")
+//	}
+		
 		mySituation = tmpSituation
 		setDataLogTimeWithGPS(mySituation)
 		return true
 
 	} else if (x[0] == "GNGSA") || (x[0] == "GPGSA") { // Satellite data.
+	// if globalSettings.DEBUG { log.Printf("GPGSA message.\n") }
 		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
 
 		if len(x) < 18 {
@@ -1179,6 +1252,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 	}
 
 	if (x[0] == "GPGSV") || (x[0] == "GLGSV") { // GPS + SBAS or GLONASS satellites in view message. Galileo is TBD.
+	// if globalSettings.DEBUG { log.Printf("GPGSV message.\n") }
 		if len(x) < 4 {
 			return false
 		}
@@ -1307,8 +1381,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 			updateConstellation()
 			satelliteMutex.Unlock()
 			// END OF PROTECTED BLOCK
-		}
-
+		}		
 		return true
 	}
 

@@ -1280,7 +1280,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		if x[2] == "A" { 
 			tmpSituation.Quality = 1
 		} else if x[2] == "V" { // invalid fix
-			tmpSituation.Quality = 1	// bmc - allow simulation mode from GPSMAP 496
+			tmpSituation.Quality = 0	// bmc - allow simulation mode from GPSMAP 496
 	if globalSettings.DEBUG { log.Printf("GPRMC simulation fix.\n") }
 		} else if x[2] != "A" { // invalid fix
 			tmpSituation.Quality = 0 // Just a note.

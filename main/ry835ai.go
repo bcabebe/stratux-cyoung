@@ -856,6 +856,103 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		}
 
 		// otherwise parse the NMEA standard messages as a compatibility option for SIRF, generic NMEA, etc.
+	// GNVTG, GPVTG
+	// GNGGA, GPGGA
+	// GNRMC, GPRMC
+	// GNGSA, GPGSA
+	// GPGSV, GLGSV
+// FROM GPS III
+// PGRME		$PGRME,10.1,M,16.5,M,19.3,M*17
+// GPGLL		$GPGLL,3325.571,N,11143.153,W,143208,A*31
+// PGRMZ		$PGRMZ,1345,f,3*28
+// PGRMM		$PGRMM,WGS 84*06
+// GPBOD		$GPBOD,,T,,M,,*47
+// GPRTE		$GPRTE,0,1,c*36
+// GPRMC ***	
+// GPRMB		$GPRMB,A,,,,,,,,,,,,V*71
+// GPGGA ***	
+// GPGSA ***	
+// GPGSV ***	
+// 
+// FROM GPSMAP 496
+// GPRMB		$GPRMB,A,,,,,,,,,,,A,D*0E
+// PGRMZ		$PGRMZ,1244,f,3*28
+// PGRMH		4PGRHM,A,15,,,,0,,*09
+// GPRMC ***	
+	} else if (x[0] == "PGRME") { // .
+// PGRME		$PGRME,10.1,M,16.5,M,19.3,M*17
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "GPGLL") { // Geographic Position, Latituge/Longitude.
+// GPGLL		$GPGLL,3325.571,N,11143.153,W,143208,A*31
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "PGRMZ") { // ?.
+// PGRMZ		$PGRMZ,1345,f,3*28
+// PGRMZ		$PGRMZ,1244,f,3*28
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "PGRMM") { // ?.
+// PGRMM		$PGRMM,WGS 84*06
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "GPBOD") { // Bearing, Origin to Destination.
+// GPBOD		$GPBOD,,T,,M,,*47
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "GPRTE") { // Routes.
+// GPRTE		$GPRTE,0,1,c*36
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "GPRMB") { // recommended Minimum Navigation Information.
+// GPRMB		$GPRMB,A,,,,,,,,,,,,V*71
+// GPRMB		$GPRMB,A,,,,,,,,,,,A,D*0E
+//					   
+		//  1 Data Status, A = Ok, V = Warning
+		//  2 Cross-track error (nautical miles, 9.9 max.)
+		//  3 Steer to correct, L = steer Left to correct, R = right
+		//  4 Origin Waypoint ID
+		//  5 Destination waypoint ID
+		//  6 Destination waypoint latitude
+		//  7 N or S
+		//  8 Destination waypoint longitude
+		//  9 E or W
+		// 10 Range to destination, nautical miles
+		// 11 True bearing to destination
+		// 12 Velocity towards destination, knots
+		// 13 Arrival alarm, A = Arrived, V = Not arrived
+
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+		
+		if len(x) < ? {             // 
+			return false
+		}
+	} else if (x[0] == "PGRMH") { // ?.
+// PGRMH		4PGRHM,A,15,,,,0,,*09
+		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.
+
+		if len(x) < ? {             // 
+			return false
+		}
+
 	} else if (x[0] == "GNVTG") || (x[0] == "GPVTG") { // Ground track information.
 	if globalSettings.DEBUG { log.Printf("GPVTG message.\n") }
 		tmpSituation := mySituation // If we decide to not use the data in this message, then don't make incomplete changes in mySituation.

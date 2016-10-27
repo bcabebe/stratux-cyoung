@@ -966,16 +966,16 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		}
 		
 		// Timestamp.
-	//	if len(x[1]) < 7 {
-		if len(x[1]) < 6 {
+	//	if len(x[5]) < 7 {
+		if len(x[5]) < 6 {
 			if globalSettings.DEBUG { log.Printf("GPGLL bad timestamp?\n") }
 			return false
 		}
 		
-		hr, err1 := strconv.Atoi(x[1][0:2])
-		min, err2 := strconv.Atoi(x[1][2:4])
-		sec, err3 := strconv.ParseFloat(x[1][4:], 32)
-	//	sec, err3 := strconv.Atoi(x[1][4:6])
+		hr, err1 := strconv.Atoi(x[5][0:2])
+		min, err2 := strconv.Atoi(x[5][2:4])
+		sec, err3 := strconv.ParseFloat(x[5][4:], 32)
+	//	sec, err3 := strconv.Atoi(x[5][4:6])
 		if err1 != nil || err2 != nil || err3 != nil {
 			if globalSettings.DEBUG { log.Printf("GPGLL bad hr.min.sec.\n") }
 			return false
@@ -1015,7 +1015,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 			return false
 		}
 		
-		tmpSituation.Alt = alt
+		tmpSituation.Alt = float32(alt)
 		
 		// We've made it this far, so that means we've processed "everything" and can now make the change to mySituation.
 		if globalSettings.DEBUG { log.Printf("Good PGRMZ NMEA message.\n") }

@@ -933,7 +933,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 			return false
 		}
 		
-		hr, err1 = strconv.Atoi(x[1][0:2])
+		hr, err1 := strconv.Atoi(x[1][0:2])
 		minf, err2 := strconv.ParseFloat(x[1][2:], 32)
 		if err1 != nil || err2 != nil {
 			if globalSettings.DEBUG { log.Printf("GPGLL bad lat.hr.minf.\n") }
@@ -972,7 +972,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 			return false
 		}
 		
-		hr, err1 := strconv.Atoi(x[5][0:2])
+		hr, err1 = strconv.Atoi(x[5][0:2])
 		min, err2 := strconv.Atoi(x[5][2:4])
 		sec, err3 := strconv.ParseFloat(x[5][4:], 32)
 	//	sec, err3 := strconv.Atoi(x[5][4:6])
@@ -1280,7 +1280,7 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		if x[2] == "A" { 
 			tmpSituation.Quality = 1
 		} else if x[2] == "V" { // invalid fix
-			tmpSituation.Quality = 0	// bmc - allow simulation mode from GPSMAP 496
+			tmpSituation.Quality = 1	// bmc - allow simulation mode from GPSMAP 496
 	if globalSettings.DEBUG { log.Printf("GPRMC simulation fix.\n") }
 		} else if x[2] != "A" { // invalid fix
 			tmpSituation.Quality = 0 // Just a note.

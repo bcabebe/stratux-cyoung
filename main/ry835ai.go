@@ -167,8 +167,8 @@ func initGPSSerial() bool {
 		isSirfIV = true
 		baudrate = 4800
 		device = "/dev/prolific0"
-	} else if _, err := os.Stat("/dev/ttyS0"); err == nil { // ttyAMA0 (ttyS0 on RPi3) is PL011 UART (GPIO pins 8 and 10) on all RPi.
-		device = "/dev/ttyS0"
+	} else if _, err := os.Stat("/dev/ttyAMA0"); err == nil { // ttyAMA0 is PL011 UART (GPIO pins 8 and 10) on all RPi.
+		device = "/dev/ttyAMA0"
                 baudrate = 4800
 		isGarmin = true
 	} else {
@@ -1008,8 +1008,8 @@ func processNMEALine(l string) (sentenceUsed bool) {
 		}
 		
 		// Altitude.
-		//alt, err1 := strconv.Atoi(x[1])
-		alt, err1 := strconv.ParseFloat(x[1], 32)
+		alt, err1 := strconv.Atoi(x[1])
+		//alt, err1 := strconv.ParseFloat(x[1], 32)
 		if err1 != nil {
 			if globalSettings.DEBUG { log.Printf("PGRMZ bad altitude.\n") }
 			return false

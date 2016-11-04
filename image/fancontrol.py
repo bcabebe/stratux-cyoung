@@ -28,14 +28,14 @@ class FanControl():
         GPIO.setup(12, GPIO.OUT)
         GPIO.setwarnings(False)
         p=GPIO.PWM(12, 1000)
-        PWM = 50
+        PWM = 75
         while True:
             CPU_temp = self.getCPUtemp()
             if CPU_temp > 40.5:
-                PWM = min(max(PWM + 1, 0), 100)
+                PWM = min(max(PWM + 1, 50), 100)
                 p.start(PWM)
             elif CPU_temp < 39.5:
-                PWM = min(max(PWM - 1, 0), 100)
+                PWM = min(max(PWM - 1, 50), 100)
                 p.start(PWM)
             time.sleep(5)
         GPIO.cleanup()

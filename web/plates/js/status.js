@@ -54,8 +54,55 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 			$scope.GPS_satellites_tracked = status.GPS_satellites_tracked;
 			$scope.GPS_satellites_seen = status.GPS_satellites_seen;
 			$scope.GPS_solution = status.GPS_solution;
-			$scope.GPS_position_accuracy = String(status.GPS_solution ? ", " + status.GPS_position_accuracy.toFixed(1) : "");
-			$scope.RY835AI_connected = status.RY835AI_connected;
+
+			switch(status.GPS_solution) {
+				case "Disconnected":
+				case "No Fix":
+				case "Unknown":
+					$scope.GPS_position_accuracy = "";
+					break;
+				default:
+					$scope.GPS_position_accuracy = ", " + status.GPS_position_accuracy.toFixed(1) + " m";
+			}
+			var gpsHardwareCode = (status.GPS_detected_type & 0x0f);
+			var tempGpsHardwareString = "Not installed";
+			switch(gpsHardwareCode) {
+				case 1:
+					tempGpsHardwareString = "Serial port";
+					break;
+				case 2:
+					tempGpsHardwareString = "Prolific USB-serial bridge";
+					break;
+				case 6:
+					tempGpsHardwareString = "USB u-blox 6 GPS receiver";
+					break;
+				case 7:
+					tempGpsHardwareString = "USB u-blox 7 GNSS receiver";
+					break;
+				case 8:
+					tempGpsHardwareString = "USB u-blox 8 GNSS receiver";
+					break;
+				default:
+					tempGpsHardwareString = "Not installed";
+			}
+			$scope.GPS_hardware = tempGpsHardwareString;
+			var gpsProtocol = (status.GPS_detected_type >> 4);
+			var tempGpsProtocolString = "Not communicating";
+			switch(gpsProtocol) {
+				case 1:
+					tempGpsProtocolString = "NMEA protocol";
+					break;
+				case 3:
+					tempGpsProtocolString = "NMEA-UBX protocol";
+					break;
+				default:
+					tempGpsProtocolString = "Not communicating";
+			}
+			$scope.GPS_protocol = tempGpsProtocolString;
+			
+			var MiBFree = status.DiskBytesFree/1048576;
+			$scope.DiskSpace = MiBFree.toFixed(1);
+			
 			$scope.UAT_METAR_total = status.UAT_METAR_total;
 			$scope.UAT_TAF_total = status.UAT_TAF_total;
 			$scope.UAT_NEXRAD_total = status.UAT_NEXRAD_total;
@@ -82,7 +129,9 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 			var boardtemp = status.CPUTemp;
 			if (boardtemp != undefined) {
 				/* boardtemp is celcius to tenths */
-				$scope.CPUTemp = String(boardtemp.toFixed(1) + 'C / ' + ((boardtemp * 9 / 5) + 32.0).toFixed(1) + 'F');
+				$scope.CPUTemp = String(boardtemp.toFixed(1) + '°C / ' + ((boardtemp * 9 / 5) + 32.0).toFixed(1) + '°F');
+				$scope.CPUTempMin = String(status.CPUTempMin.toFixed(1)) + '°C';
+				$scope.CPUTempMax = String(status.CPUTempMax.toFixed(1)) + '°C';				
 			} else {
 				// $('#CPUTemp').text('unavailable');
 			}
@@ -95,7 +144,6 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 		$scope.visible_uat = true;
 		$scope.visible_es = true;
 		$scope.visible_gps = true;
-		$scope.visible_ahrs = true;
 
 		// Simple GET request example (note: responce is asynchronous)
 		$http.get(URL_SETTINGS_GET).
@@ -110,7 +158,6 @@ function StatusCtrl($rootScope, $scope, $state, $http, $interval) {
 				$scope.visible_es = true;
 			}
 			$scope.visible_gps = settings.GPS_Enabled;
-			$scope.visible_ahrs = settings.AHRS_Enabled;
 		}, function (response) {
 			// nop
 		});

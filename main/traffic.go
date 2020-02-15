@@ -1,6 +1,6 @@
 /*
 	Copyright (c) 2015-2016 Christopher Young
-	Distributable under the terms of The "BSD New"" License
+	Distributable under the terms of The "BSD New" License
 	that can be found in the LICENSE file, herein included
 	as part of this header.
 
@@ -84,7 +84,7 @@ type TrafficInfo struct {
 	TargetType          uint8     // types decribed in const above
 	SignalLevel         float64   // Signal level, dB RSSI.
 	Squawk              int       // Squawk code
-	Position_valid      bool      // set when position report received. Unset after n seconds? (To-do)
+	Position_valid      bool      //TODO: set when position report received. Unset after n seconds?
 	Lat                 float32   // decimal degrees, north positive
 	Lng                 float32   // decimal degrees, east positive
 	Alt                 int32     // Pressure altitude, feet
@@ -97,6 +97,7 @@ type TrafficInfo struct {
 	Speed_valid         bool      // set when speed report received.
 	Vvel                int16     // feet per minute
 	Timestamp           time.Time // timestamp of traffic message, UTC
+	PriorityStatus      uint8     // Emergency or priority code as defined in GDL90 spec, DO-260B (Type 28 msg) and DO-282B
 
 	// Parameters starting at 'Age' are calculated from last message receipt on each call of sendTrafficUpdates().
 	// Mode S transmits position and track in separate messages, and altitude can also be
@@ -109,10 +110,10 @@ type TrafficInfo struct {
 	Last_GnssDiffAlt     int32     // Altitude at last GnssDiffFromBaroAlt update.
 	Last_speed           time.Time // Time of last velocity and track update (stratuxClock).
 	Last_source          uint8     // Last frequency on which this target was received.
-	ExtrapolatedPosition bool      // TO-DO: True if Stratux is "coasting" the target from last known position.
-	Bearing              float64   // Bearing in degrees true to traffic from ownship, if it can be calculated.
-	Distance             float64   // Distance to traffic from ownship, if it can be calculated.
-	//FIXME: Some indicator that Bearing and Distance are valid, since they aren't always available.
+	ExtrapolatedPosition bool      //TODO: True if Stratux is "coasting" the target from last known position.
+	BearingDist_valid    bool      // set when bearing and distance information is valid
+	Bearing              float64   // Bearing in degrees true to traffic from ownship, if it can be calculated. Units: degrees.
+	Distance             float64   // Distance to traffic from ownship, if it can be calculated. Units: meters.
 	//FIXME: Rename variables for consistency, especially "Last_".
 }
 
@@ -178,18 +179,23 @@ func sendTrafficUpdates() {
 		}
 	}
 
-	var msg []byte
+	msgs := make([][]byte, 1)
 	if globalSettings.DEBUG && (stratuxClock.Time.Second()%15) == 0 {
 		log.Printf("List of all aircraft being tracked:\n")
 		log.Printf("==================================================================\n")
 	}
 	code, _ := strconv.ParseInt(globalSettings.OwnshipModeS, 16, 32)
-	for icao, ti := range traffic { // TO-DO: Limit number of aircraft in traffic message. ForeFlight 7.5 chokes at ~1000-2000 messages depending on iDevice RAM. Practical limit likely around ~500 aircraft without filtering.
+	for icao, ti := range traffic { // ForeFlight 7.5 chokes at ~1000-2000 messages depending on iDevice RAM. Practical limit likely around ~500 aircraft without filtering.
 		if isGPSValid() {
 			// func distRect(lat1, lon1, lat2, lon2 float64) (dist, bearing, distN, distE float64) {
-			dist, bearing := distance(float64(mySituation.Lat), float64(mySituation.Lng), float64(ti.Lat), float64(ti.Lng))
+			dist, bearing := distance(float64(mySituation.GPSLatitude), float64(mySituation.GPSLongitude), float64(ti.Lat), float64(ti.Lng))
 			ti.Distance = dist
 			ti.Bearing = bearing
+			ti.BearingDist_valid = true
+		} else {
+			ti.Distance = 0
+			ti.Bearing = 0
+			ti.BearingDist_valid = false
 		}
 		ti.Age = stratuxClock.Since(ti.Last_seen).Seconds()
 		ti.AgeLastAlt = stratuxClock.Since(ti.Last_alt).Seconds()
@@ -207,23 +213,35 @@ func sendTrafficUpdates() {
 		traffic[icao] = ti // write the updated ti back to the map
 		//log.Printf("Traffic age of %X is %f seconds\n",icao,ti.Age)
 		if ti.Age > 2 { // if nothing polls an inactive ti, it won't push to the webUI, and its Age won't update.
-			tiJSON, _ := json.Marshal(&ti)
-			trafficUpdate.Send(tiJSON)
+			trafficUpdate.SendJSON(ti)
 		}
-		if ti.Position_valid && ti.Age < 6 { // ... but don't pass stale data to the EFB. TO-DO: Coast old traffic? Need to determine how FF, WingX, etc deal with stale targets.
+		if ti.Position_valid && ti.Age < 6 { // ... but don't pass stale data to the EFB.
+			//TODO: Coast old traffic? Need to determine how FF, WingX, etc deal with stale targets.
 			logTraffic(ti) // only add to the SQLite log if it's not stale
 
-			if ti.Icao_addr == uint32(code) { //
-				log.Printf("Ownship target detected for code %X\n", code) // DEBUG - REMOVE
+			if ti.Icao_addr == uint32(code) {
+				if globalSettings.DEBUG {
+					log.Printf("Ownship target detected for code %X\n", code)
+				}
 				OwnshipTrafficInfo = ti
 			} else {
-				msg = append(msg, makeTrafficReportMsg(ti)...)
+				cur_n := len(msgs) - 1
+				if len(msgs[cur_n]) >= 35 {
+					// Batch messages into packets with at most 35 traffic reports
+					//  to keep each packet under 1KB.
+					cur_n++
+					msgs = append(msgs, make([]byte, 0))
+				}
+				msgs[cur_n] = append(msgs[cur_n], makeTrafficReportMsg(ti)...)
 			}
 		}
 	}
 
-	if len(msg) > 0 {
-		sendGDL90(msg, false)
+	for i := 0; i < len(msgs); i++ {
+		msg := msgs[i]
+		if len(msg) > 0 {
+			sendGDL90(msg, false)
+		}
 	}
 }
 
@@ -235,8 +253,22 @@ func registerTrafficUpdate(ti TrafficInfo) {
 			return
 		}
 	*/ // Send all traffic to the websocket and let JS sort it out. This will provide user indication of why they see 1000 ES messages and no traffic.
-	tiJSON, _ := json.Marshal(&ti)
-	trafficUpdate.Send(tiJSON)
+	trafficUpdate.SendJSON(ti)
+}
+
+func isTrafficAlertable(ti TrafficInfo) bool {
+	// Set alert bit if possible and traffic is within some threshold
+	// TODO: Could be more intelligent, taking into account headings etc.
+	if !ti.BearingDist_valid {
+		// If not able to calculate the distance to the target, let the alert bit be set always.
+		return true
+	}
+	if ti.BearingDist_valid &&
+		ti.Distance < 3704 { // 3704 meters, 2 nm.
+		return true
+	}
+
+	return false
 }
 
 func makeTrafficReportMsg(ti TrafficInfo) []byte {
@@ -244,7 +276,14 @@ func makeTrafficReportMsg(ti TrafficInfo) []byte {
 	// See p.16.
 	msg[0] = 0x14 // Message type "Traffic Report".
 
-	msg[1] = 0x10 | ti.Addr_type // Alert status, address type.
+	// Address type
+	msg[1] = ti.Addr_type
+
+	// Set alert if needed
+	if isTrafficAlertable(ti) {
+		// Set the alert bit.  See pg. 18 of GDL90 ICD
+		msg[1] |= 0x10
+	}
 
 	// ICAO Address.
 	msg[2] = byte((ti.Icao_addr & 0x00FF0000) >> 16)
@@ -337,9 +376,17 @@ func makeTrafficReportMsg(ti TrafficInfo) []byte {
 		msg[19+i] = c
 	}
 
+	//msg[27] is priority / emergency status per GDL90 spec (DO260B and DO282B are same codes)
+	msg[27] = ti.PriorityStatus << 4
+
 	return prepareMessage(msg)
 }
 
+// parseDownlinkReport decodes a UAT downlink message to extract identity, state vector, and mode status data.
+// Decoded data is used to update a TrafficInfo object, keyed to the 24-bit ICAO code contained in the
+// downlink message.
+// Inputs are a checksum-verified hex string corresponding to the 18 or 34-byte UAT
+// message, and an int representing UAT signal amplitude (0-1000).
 func parseDownlinkReport(s string, signalLevel int) {
 
 	var ti TrafficInfo
@@ -374,41 +421,110 @@ func parseDownlinkReport(s string, signalLevel int) {
 
 	ti.Addr_type = addr_type
 
-	// Parse tail number, if available.
-	if msg_type == 1 || msg_type == 3 { // Need "MS" portion of message.
-		base40_alphabet := string("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ  ..")
-		tail := ""
+	var uat_version byte // sent as part of MS element, byte 24
 
-		v := (uint16(frame[17]) << 8) | uint16(frame[18])
-		tail += string(base40_alphabet[(v/40)%40])
-		tail += string(base40_alphabet[v%40])
-		v = (uint16(frame[19]) << 8) | uint16(frame[20])
-		tail += string(base40_alphabet[(v/1600)%40])
-		tail += string(base40_alphabet[(v/40)%40])
-		tail += string(base40_alphabet[v%40])
-		v = (uint16(frame[21]) << 8) | uint16(frame[22])
-		tail += string(base40_alphabet[(v/1600)%40])
-		tail += string(base40_alphabet[(v/40)%40])
-		tail += string(base40_alphabet[v%40])
-
-		tail = strings.Trim(tail, " ")
-		ti.Tail = tail
-	}
-
-	// Extract emitter category.
+	// Extract parameters from Mode Status elements, if available.
 	if msg_type == 1 || msg_type == 3 {
+
+		// Determine UAT message version. This is needed for some capability decoding and is useful for debugging.
+		uat_version = (frame[23] >> 2) & 0x07
+
+		// Extract emitter category.
 		v := (uint16(frame[17]) << 8) | (uint16(frame[18]))
 		ti.Emitter_category = uint8((v / 1600) % 40)
-	}
 
-	// OK.
-	//	fmt.Printf("%d, %d, %06X\n", msg_type, ti.Addr_type, ti.Icao_addr)
+		// Decode callsign or Flight Plan ID (i.e. squawk code)
+		// If the CSID bit (byte 27, bit 7) is set to 1, all eight characters
+		// encoded in bytes 18-23 represent callsign.
+		// If the CSID bit is set to 0, the first four characters encoded in bytes 18-23
+		// represent the Mode A squawk code.
+
+		csid := (frame[26] >> 1) & 0x01
+
+		if csid == 1 { // decode as callsign
+			base40_alphabet := string("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ  ..")
+			tail := ""
+
+			v := (uint16(frame[17]) << 8) | uint16(frame[18])
+			tail += string(base40_alphabet[(v/40)%40])
+			tail += string(base40_alphabet[v%40])
+			v = (uint16(frame[19]) << 8) | uint16(frame[20])
+			tail += string(base40_alphabet[(v/1600)%40])
+			tail += string(base40_alphabet[(v/40)%40])
+			tail += string(base40_alphabet[v%40])
+			v = (uint16(frame[21]) << 8) | uint16(frame[22])
+			tail += string(base40_alphabet[(v/1600)%40])
+			tail += string(base40_alphabet[(v/40)%40])
+			tail += string(base40_alphabet[v%40])
+			tail = strings.Trim(tail, " ")
+			ti.Tail = tail
+
+		} else if uat_version >= 2 { // decode as Mode 3/A code, if UAT version is at least 2
+			v := (uint16(frame[17]) << 8) | uint16(frame[18])
+			squawk_a := (v / 40) % 40
+			squawk_b := v % 40
+			v = (uint16(frame[19]) << 8) | uint16(frame[20])
+			squawk_c := (v / 1600) % 40
+			squawk_d := (v / 40) % 40
+			squawk := 1000*squawk_a + 100*squawk_b + 10*squawk_c + squawk_d
+			ti.Squawk = int(squawk)
+		}
+
+		ti.NACp = int((frame[25] >> 4) & 0x0F)
+		ti.PriorityStatus = (frame[23] >> 5) & 0x07
+
+		// Following section is future-use for debugging and / or additional status info on UAT traffic. Message parsing needs testing.
+
+		if globalSettings.DEBUG {
+			//declaration for mode status flags -- parse for debug logging
+			var status_sil byte
+			//var status_transmit_mso byte
+			var status_sda byte
+			var status_nacv byte
+			//var status_nicbaro byte
+			//var status_sil_supp byte
+			//var status_geom_vert_acc byte
+			//var status_sa_flag byte
+			var capability_uat_in bool
+			var capability_1090_in bool
+			//var capability_tcas bool
+			//var capability_cdti bool
+			//var opmode_tcas_active bool
+			//var opmode_ident_active bool
+			//var opmode_rec_atc_serv bool
+
+			// these are present in v1 and v2 messages
+			status_sil = frame[23] & 0x03
+			//status_transmit_mso = frame[24] >> 2
+			status_nacv = (frame[25] >> 1) & 0x07
+			//status_nicbaro = frame[25] & 0x01
+
+			// other status and capability bits are different between v1 and v2
+			if uat_version == 2 {
+				status_sda = frame[24] & 0x03
+				capability_uat_in = (frame[26] >> 7) != 0
+				capability_1090_in = ((frame[26] >> 6) & 0x01) != 0
+				//capability_tcas = ((frame[26] >> 5) & 0x01) != 0
+				//opmode_tcas_active = ((frame[26] >> 4) & 0x01) != 0
+				//opmode_ident_active = ((frame[26] >> 3) & 0x01) != 0
+				//opmode_rec_atc_serv = ((frame[26] >> 2) & 0x01) != 0
+				//status_sil_supp = frame[26] & 0x01
+				//status_geom_vert_acc = (frame[27] >> 6) & 0x03
+				//status_sa_flag = (frame[27] >> 5) & 0x01
+
+			} else if uat_version == 1 {
+				//capability_cdti = (frame[26] >> 7) != 0
+				//capability_tcas = ((frame[26] >> 6) & 0x01) != 0
+				//opmode_tcas_active = ((frame[26] >> 5) & 0x01) != 0
+				//opmode_ident_active = ((frame[26] >> 4) & 0x01) != 0
+				//opmode_rec_atc_serv = ((frame[26] >> 3) & 0x01) != 0
+			}
+
+			log.Printf("Supplemental UAT Mode Status for %06X: Version = %d; SIL = %d; SDA = %d; NACv = %d; 978 In = %v; 1090 In = %v\n", icao_addr, uat_version, status_sil, status_sda, status_nacv, capability_uat_in, capability_1090_in)
+		}
+	}
 
 	ti.NIC = int(frame[11] & 0x0F)
-
-	if (msg_type == 1) || (msg_type == 3) { // Since NACp is passed with normal UATreports, no need to use our ES hack.
-		ti.NACp = int((frame[25] >> 4) & 0x0F)
-	}
 
 	var power float64
 	if signalLevel > 0 {
@@ -478,7 +594,7 @@ func parseDownlinkReport(s string, signalLevel int) {
 		ti.Lat = lat
 		ti.Lng = lng
 		if isGPSValid() {
-			ti.Distance, ti.Bearing = distance(float64(mySituation.Lat), float64(mySituation.Lng), float64(ti.Lat), float64(ti.Lng))
+			ti.Distance, ti.Bearing = distance(float64(mySituation.GPSLatitude), float64(mySituation.GPSLongitude), float64(ti.Lat), float64(ti.Lng))
 		}
 		ti.Last_seen = stratuxClock.Time
 		ti.ExtrapolatedPosition = false
@@ -538,7 +654,7 @@ func parseDownlinkReport(s string, signalLevel int) {
 			}
 		}
 		if ns_vel_valid && ew_vel_valid {
-			if ns_vel != 0 && ew_vel != 0 {
+			if ns_vel != 0 || ew_vel != 0 {
 				//TODO: Track type
 				track = uint16((360 + 90 - (int16(math.Atan2(float64(ns_vel), float64(ew_vel)) * 180 / math.Pi))) % 360)
 			}
@@ -571,6 +687,26 @@ func parseDownlinkReport(s string, signalLevel int) {
 		// Dimensions of vehicle - skip.
 	}
 
+	if msg_type == 1 || msg_type == 2 || msg_type == 5 || msg_type == 6 {
+		// Read AUXSV.
+		raw_alt := (int32(frame[29]) << 4) | ((int32(frame[30]) & 0xf0) >> 4)
+		if raw_alt != 0 {
+			alt := ((raw_alt - 1) * 25) - 1000
+			if ti.AltIsGNSS {
+				// Current ti.Alt is GNSS. Swap it for the AUXSV alt, which is baro.
+				baro_alt := ti.Alt
+				ti.Alt = alt
+				alt = baro_alt
+				ti.AltIsGNSS = false
+			}
+
+			ti.GnssDiffFromBaroAlt = alt - ti.Alt
+			ti.Last_GnssDiff = stratuxClock.Time
+			ti.Last_GnssDiffAlt = ti.Alt
+
+		}
+	}
+
 	ti.Track = track
 	ti.Speed = speed
 	ti.Vvel = vvel
@@ -579,7 +715,6 @@ func parseDownlinkReport(s string, signalLevel int) {
 		ti.Last_speed = stratuxClock.Time
 	}
 
-	//OK.
 	//	fmt.Printf("ns_vel %d, ew_vel %d, track %d, speed_valid %t, speed %d, vvel_geo %t, vvel %d\n", ns_vel, ew_vel, track, speed_valid, speed, vvel_geo, vvel)
 
 	/*
@@ -593,7 +728,6 @@ func parseDownlinkReport(s string, signalLevel int) {
 		}
 	*/
 
-	//OK.
 	//	fmt.Printf("tisb_site_id %d, utc_coupled %t\n", tisb_site_id, utc_coupled)
 
 	ti.Timestamp = time.Now()
@@ -690,7 +824,7 @@ func esListen() {
 			}
 
 			// generate human readable summary of message types for debug
-			// TO-DO: Use for ES message statistics?
+			//TODO: Use for ES message statistics?
 			/*
 				var s1 string
 				if newTi.DF == 17 {
@@ -761,7 +895,8 @@ func esListen() {
 					ti.Lat = lat
 					ti.Lng = lng
 					if isGPSValid() {
-						ti.Distance, ti.Bearing = distance(float64(mySituation.Lat), float64(mySituation.Lng), float64(ti.Lat), float64(ti.Lng))
+						ti.Distance, ti.Bearing = distance(float64(mySituation.GPSLatitude), float64(mySituation.GPSLongitude), float64(ti.Lat), float64(ti.Lng))
+						ti.BearingDist_valid = true
 					}
 					ti.Position_valid = true
 					ti.ExtrapolatedPosition = false
@@ -965,8 +1100,8 @@ func updateDemoTraffic(icao uint32, tail string, relAlt float32, gs float64, off
 	lat := 43.99
 	lng := -88.56
 	if isGPSValid() {
-		lat = float64(mySituation.Lat)
-		lng = float64(mySituation.Lng)
+		lat = float64(mySituation.GPSLatitude)
+		lng = float64(mySituation.GPSLongitude)
 	}
 	traffRelLat := y / 60
 	traffRelLng := -x / (60 * math.Cos(lat*math.Pi/180.0))
@@ -996,10 +1131,11 @@ func updateDemoTraffic(icao uint32, tail string, relAlt float32, gs float64, off
 	ti.Lng = float32(lng + traffRelLng)
 
 	ti.Distance, ti.Bearing = distance(float64(lat), float64(lng), float64(ti.Lat), float64(ti.Lng))
+	ti.BearingDist_valid = true
 
 	ti.Position_valid = true
 	ti.ExtrapolatedPosition = false
-	ti.Alt = int32(mySituation.Alt + relAlt)
+	ti.Alt = int32(mySituation.GPSAltitudeMSL + relAlt)
 	ti.Track = uint16(hdg)
 	ti.Speed = uint16(gs)
 	if hdg >= 240 && hdg < 270 {
@@ -1048,10 +1184,12 @@ func updateDemoTraffic(icao uint32, tail string, relAlt float32, gs float64, off
 				but are not used for aicraft on the civil registry. These could be
 				military, other public aircraft, or future use.
 
-
 				Values between C0CDF9 - C3FFFF are allocated to Canada,
 				but are not used for aicraft on the civil registry. These could be
 				military, other public aircraft, or future use.
+
+				Values between 7C0000 - 7FFFFF are allocated to Australia.
+
 
 			Output:
 				string: String containing the decoded tail number (if decoding succeeded),
@@ -1073,9 +1211,11 @@ func icao2reg(icao_addr uint32) (string, bool) {
 		nation = "US"
 	} else if (icao_addr >= 0xC00001) && (icao_addr <= 0xC3FFFF) {
 		nation = "CA"
+	} else if (icao_addr >= 0x7C0000) && (icao_addr <= 0x7FFFFF) {
+		nation = "AU"
 	} else {
-		// future national decoding is TO-DO
-		return "NON-NA", false
+		//TODO: future national decoding.
+		return "OTHER", false
 	}
 
 	if nation == "CA" { // Canada decoding
@@ -1104,6 +1244,29 @@ func icao2reg(icao_addr uint32) (string, bool) {
 
 		//fmt.Printf("B = %d, C = %d, D = %d, E = %d\n",b,c,d,e)
 		tail = fmt.Sprintf("C-%c%c%c%c", b_str[b], c+65, d+65, e+65)
+	}
+
+	if nation == "AU" { // Australia decoding
+
+		nationalOffset := uint32(0x7C0000)
+		offset := (icao_addr - nationalOffset)
+		i1 := offset / 1296
+		offset2 := offset % 1296
+		i2 := offset2 / 36
+		offset3 := offset2 % 36
+		i3 := offset3
+
+		var a_char, b_char, c_char string
+
+		a_char = fmt.Sprintf("%c", i1+65)
+		b_char = fmt.Sprintf("%c", i2+65)
+		c_char = fmt.Sprintf("%c", i3+65)
+
+		if i1 < 0 || i1 > 25 || i2 < 0 || i2 > 25 || i3 < 0 || i3 > 25 {
+			return "OTHER", false
+		}
+
+		tail = "VH-" + a_char + b_char + c_char
 	}
 
 	if nation == "US" { // FAA decoding

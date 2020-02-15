@@ -16,13 +16,14 @@ make
 rm -rf work
 mkdir -p work/bin
 cp gen_gdl90 work/bin/
+cp fancontrol work/bin/
 cp libdump978.so work/bin/
-cp linux-mpu9150/libimu.so work/bin/
 cp __lib__systemd__system__stratux.service work/bin/
 cp __root__stratux-pre-start.sh work/bin/
 cp dump1090/dump1090 work/bin/
 cp -r web work/bin/
 cp image/hostapd.conf work/bin/
+cp image/hostapd-edimax.conf work/bin/
 cp image/config.txt work/bin/
 cp image/rtl-sdr-blacklist.conf work/bin/
 cp image/bashrc.txt work/bin/
@@ -33,7 +34,17 @@ cp image/sdr-tool.sh work/bin/
 cp image/10-stratux.rules work/bin/
 cp image/99-uavionix.rules work/bin/
 cp image/motd work/bin/
-cp image/fancontrol.py work/bin/
+cp image/stratux-wifi.sh work/bin/
+cp image/rc.local work/bin/
+cp image/dhcpd-not_smart.conf work/bin/
+cp image/dhcpd-smart.conf work/bin/
+cp image/interfaces work/bin/
+cp image/logrotate.conf work/bin/
+cp image/logrotate_d_stratux work/bin/
+cp image/rsyslog_d_stratux work/bin/
+
+cp test-data/ahrs/ahrs_table.log work/bin/
+cp ahrs_approx work/bin/
 
 #TODO: librtlsdr.
 cd work/

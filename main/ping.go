@@ -1,6 +1,6 @@
 /*
 	Copyright (c) 2016 uAvionix
-	Distributable under the terms of The "BSD New"" License
+	Distributable under the terms of The "BSD New" License
 	that can be found in the LICENSE file, herein included
 	as part of this header.
 
@@ -40,6 +40,9 @@ func initPingSerial() bool {
 
 	if _, err := os.Stat("/dev/ping"); err == nil {
 		device = "/dev/ping"
+	} else if _, err := os.Stat("/dev/softrf"); err == nil {
+		device = "/dev/softrf"
+		baudrate = int(38400)
 	} else {
 		log.Printf("No suitable Ping device found.\n")
 		return false

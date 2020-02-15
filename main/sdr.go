@@ -1,6 +1,6 @@
 /*
 	Copyright (c) 2015-2016 Christopher Young
-	Distributable under the terms of The "BSD New"" License
+	Distributable under the terms of The "BSD New" License
 	that can be found in the LICENSE file, herein included
 	as part of this header.
 
@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"../godump978"
@@ -451,7 +452,7 @@ func configDevices(count int, esEnabled, uatEnabled bool) {
 	// dongles are set to the same stratux id and the unconsumed,
 	// non-anonymous, dongle makes it to this loop.
 	for i, s := range unusedIDs {
-		if uatEnabled && UATDev == nil && !rES.hasID(s) {
+		if uatEnabled && !globalStatus.UATRadio_connected && UATDev == nil && !rES.hasID(s) {
 			createUATDev(i, s, false)
 		} else if esEnabled && ESDev == nil && !rUAT.hasID(s) {
 			createESDev(i, s, false)
@@ -470,6 +471,21 @@ func sdrWatcher() {
 	prevCount := 0
 	prevUATEnabled := false
 	prevESEnabled := false
+
+	// Get the system (RPi) uptime.
+	info := syscall.Sysinfo_t{}
+	err := syscall.Sysinfo(&info)
+	if err == nil {
+		// Got system uptime. Delay if and only if the system uptime is less than 120 seconds. This should be plenty of time
+		//  for the RPi to come up and start Stratux. Keeps the delay from happening if the daemon is auto-restarted from systemd.
+		if info.Uptime < 120 {
+			time.Sleep(90 * time.Second)
+		} else if globalSettings.DeveloperMode {
+			// Throw a "critical error" if developer mode is enabled. Alerts the developer that the daemon was restarted (possibly)
+			//  unexpectedly.
+			addSingleSystemErrorf("restart-warn", "System uptime %d seconds. Daemon was restarted.\n", info.Uptime)
+		}
+	}
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -506,7 +522,11 @@ func sdrWatcher() {
 		esEnabled := globalSettings.ES_Enabled
 		uatEnabled := globalSettings.UAT_Enabled
 		count := rtl.GetDeviceCount()
-		atomic.StoreUint32(&globalStatus.Devices, uint32(count))
+		interfaceCount := count
+		if globalStatus.UATRadio_connected {
+			interfaceCount++
+		}
+		atomic.StoreUint32(&globalStatus.Devices, uint32(interfaceCount))
 
 		// support up to two dongles
 		if count > 2 {

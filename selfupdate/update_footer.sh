@@ -1,7 +1,7 @@
 cp -f gen_gdl90 /usr/bin/gen_gdl90
+chmod 755 /usr/bin/gen_gdl90
 cp -f libdump978.so /usr/lib/libdump978.so
-cp -f libimu.so /usr/lib/libimu.so
-
+chmod 655 /usr/bin/gen_gdl90
 
 # Startup script.
 RASPBIAN_VERSION=`cat /etc/debian_version`
@@ -23,14 +23,30 @@ ln -fs /lib/systemd/system/stratux.service /etc/systemd/system/multi-user.target
 cp -f hostapd.conf /etc/hostapd/hostapd.conf
 cp -f hostapd-edimax.conf /etc/hostapd/hostapd-edimax.conf
 
+#rsyslog config
+cp -f rsyslog_d_stratux /etc/rsyslog.d/stratux.conf
+
+#logrotate config
+cp -f logrotate.conf /etc/logrotate.conf
+cp -f logrotate_d_stratux /etc/logrotate.d/stratux
+
+#WiFi Hostapd ver test and hostapd.conf builder script
+cp -f stratux-wifi.sh /usr/sbin/
+chmod 755 /usr/sbin/stratux-wifi.sh
+
 #WiFi Config Manager
 cp -f hostapd_manager.sh /usr/sbin/
+chmod 755 /usr/sbin/hostapd_manager.sh
 
 #SDR Serial Script
 cp -f sdr-tool.sh /usr/sbin/
+chmod 755 /usr/sbin/sdr-tool.sh
 
 #boot config
 cp -f config.txt /boot/config.txt
+
+#rc.local
+cp -f rc.local /etc/
 
 #disable serial console
 sed -i /boot/cmdline.txt -e "s/console=ttyAMA0,[0-9]\+ //"
@@ -53,10 +69,30 @@ cp -f modules.txt /etc/modules
 cp -f motd /etc/motd
 
 #fan control utility
-cp -f fancontrol.py /usr/bin/
-chmod 755 /usr/bin/fancontrol.py
+#remove old script
+rm -f /usr/bin/fancontrol.py
+#install new program
+/usr/bin/fancontrol stop
+/usr/bin/fancontrol remove
+cp -f fancontrol /usr/bin/
+chmod 755 /usr/bin/fancontrol
+/usr/bin/fancontrol install
 
 cp -f dump1090 /usr/bin/
+chmod 755 /usr/bin/dump1090
+
+# AHRS approx data.
+cp -f ahrs_table.log /root/
+cp -f ahrs_approx /usr/bin/
+chmod 755 /usr/bin/ahrs_approx
+
+# DHCPD Config.
+cp -f dhcpd-not_smart.conf /etc/dhcp/
+cp -f dhcpd-smart.conf /etc/dhcp/
+ln -s /etc/dhcp/dhcpd-not_smart.conf /etc/dhcp/dhcpd.conf
+
+# Interfaces file.
+cp -f interfaces /etc/network/interfaces
 
 # Web files install.
 cd web/ && make stratuxBuild=${stratuxBuild}
@@ -64,3 +100,6 @@ cd web/ && make stratuxBuild=${stratuxBuild}
 # Remove old Wi-Fi watcher script.
 rm -f /usr/sbin/wifi_watch.sh
 sed -i "/\bwifi_watch\b/d" /etc/rc.local
+
+cd /
+rm -rf /root/stratux-update

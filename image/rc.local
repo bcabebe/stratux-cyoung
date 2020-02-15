@@ -18,8 +18,12 @@ if [ "$_IP" ]; then
 fi
 
 
-/usr/bin/fancontrol.py start
-/usr/bin/stratux-screen.py start
+#
+# Rotate logs on boot.
+#
+/usr/sbin/logrotate /etc/logrotate.conf
 
+
+/usr/bin/stratux-screen.py start
 
 exit 0

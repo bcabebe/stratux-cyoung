@@ -22,11 +22,14 @@ chroot mnt/ apt-get install -y hostapd isc-dhcp-server
 chroot mnt/ apt-get install -y tcpdump
 #wifi startup
 chroot mnt/ systemctl enable isc-dhcp-server
+#ssh startup
+chroot mnt/ systemctl enable ssh
 
 #disable ntpd autostart
 chroot mnt/ systemctl disable ntp
 
 #root key
+mkdir -p mnt/etc/ssh/authorized_keys
 cp -f root mnt/etc/ssh/authorized_keys/root
 chown root.root mnt/etc/ssh/authorized_keys/root
 chmod 644 mnt/etc/ssh/authorized_keys/root
@@ -61,9 +64,18 @@ chmod 755 mnt/usr/sbin/sdr-tool.sh
 #ping udev
 cp -f 99-uavionix.rules mnt/etc/udev/rules.d
 
+#logrotate conf
+cp -f logrotate.conf mnt/etc/logrotate.conf
+
 #fan/temp control script
-cp fancontrol.py mnt/usr/bin/
-chmod 755 mnt/usr/bin/fancontrol.py
+#remove old script
+rm -rf mnt/usr/bin/fancontrol.py
+#install new program
+cp ../fancontrol mnt/usr/bin
+chmod 755 mnt/usr/bin/fancontrol
+chroot mnt/ /usr/bin/fancontrol remove
+chroot mnt/ /usr/bin/fancontrol install
+
 
 #isc-dhcp-server config
 cp -f isc-dhcp-server mnt/etc/default/isc-dhcp-server
@@ -76,7 +88,6 @@ cp -f 10-stratux.rules mnt/etc/udev/rules.d
 
 #stratux files
 cp -f ../libdump978.so mnt/usr/lib/libdump978.so
-cp -f ../linux-mpu9150/libimu.so mnt/usr/lib/libimu.so
 
 #go1.5.1 setup
 cp -rf /root/go mnt/root/
@@ -121,10 +132,10 @@ make
 make install
 
 #disable serial console
-sed -i /boot/cmdline.txt -e "s/console=ttyAMA0,[0-9]\+ //"
+sed -i mnt/boot/cmdline.txt -e "s/console=ttyAMA0,[0-9]\+ //"
 
 #Set the keyboard layout to US.
-sed -i /etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
+sed -i mnt/etc/default/keyboard -e "/^XKBLAYOUT/s/\".*\"/\"us\"/"
 
 #boot settings
 cp -f config.txt mnt/boot/
@@ -135,7 +146,12 @@ apt-get install -y libjpeg-dev i2c-tools python-smbus python-pip python-dev pyth
 pip install wiringpi
 cd /root
 git clone https://github.com/rm-hull/ssd1306
-cd ssd1306 && python setup.py install
+cd ssd1306
+# Force an older version of ssd1306, since recent changes have caused a lot of compatibility issues.
+git reset --hard 232fc801b0b8bd551290e26a13122c42d628fd39
+python setup.py install
+
+
 cp /root/stratux/test/screen/screen.py /usr/bin/stratux-screen.py
 mkdir -p /etc/stratux-screen/
 cp -f /root/stratux/test/screen/stratux-logo-64x64.bmp /etc/stratux-screen/stratux-logo-64x64.bmp
@@ -145,3 +161,12 @@ cp -f /root/stratux/test/screen/CnC_Red_Alert.ttf /etc/stratux-screen/CnC_Red_Al
 cp -f ../__lib__systemd__system__stratux.service mnt/lib/systemd/system/stratux.service
 cp -f ../__root__stratux-pre-start.sh mnt/root/stratux-pre-start.sh
 cp -f rc.local mnt/etc/rc.local
+
+#dhcpcd causes first boot hanging.
+chroot mnt/ systemctl disable dhcpcd
+
+#disable hciuart - interferes with ttyAMA0 as a serial port.
+chroot mnt/ systemctl disable hciuart
+
+#clean up for release images.
+rm -rf mnt/root/stratux mnt/root/go
